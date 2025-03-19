@@ -1,0 +1,24 @@
+[
+    {
+      "id": 1,
+      "driver": "Kyle M.",
+      "vehicle": "White Toyota Prius",
+      "pickUp": "China Basin",
+      "dropOff": "Mission Bay",
+      "date": "2024-01-22",
+      "time": "9:00am",
+      "seats": 2,
+      "status": "past"
+    },
+    {
+      "id": 2,
+      "driver": "Nikhil",
+      "vehicle": "Blue Honda Civic",
+      "pickUp": "Long Bridge St",
+      "dropOff": "4th St & Langton St",
+      "date": "2024-01-26",
+      "time": "5:30pm",
+      "seats": 3,
+      "status": "active"
+    }
+  ]
