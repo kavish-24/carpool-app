@@ -257,9 +257,14 @@ async function startServer() {
       }
     });
 
+app.get('/', (req, res) => {
+  res.send('Hello! This is the carpooling backend.');
+});
+
     app.listen(port, () => {
       console.log(`Server running on port ${port}`);
       console.log(`WebSocket server running on port 8080`);
+
     });
   } catch (err) {
     console.error('Failed to connect to MongoDB:', err);
