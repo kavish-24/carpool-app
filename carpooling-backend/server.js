@@ -8,10 +8,11 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3001;
 
-app.use(cors({ 
-  origin: 'https://carpool-app-2.onrender.com',
-  credentials: true 
-}));
+
+
+// In carpool-backend/server.js
+app.use(cors({ origin: 'https://carpool-app-2.onrender.com/' }));
+
 app.use(express.json());
 
 const connectionString = process.env.MONGODB_URI;
@@ -265,9 +266,9 @@ async function startServer() {
       }
     });
 
-    app.get('/', (req, res) => {
-      res.send('Hello! This is the carpooling backend.');
-    });
+app.get('/', (req, res) => {
+  res.send('Hello! This is the carpooling backend.');
+});
 
   } catch (err) {
     console.error('Failed to connect to MongoDB:', err);
