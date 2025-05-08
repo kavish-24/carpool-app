@@ -6,9 +6,12 @@ const WebSocket = require('ws');
 require('dotenv').config();
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
 
-app.use(cors());
+app.use(cors({ 
+  origin: 'https://carpool-app-2.onrender.com',
+  credentials: true 
+}));
 app.use(express.json());
 
 const connectionString = process.env.MONGODB_URI;
@@ -16,31 +19,36 @@ const databaseName = 'carpoolingDB';
 
 let db;
 
-// WebSocket server
-const wss = new WebSocket.Server({ port: 8080 });
-
-wss.on('connection', ws => {
-  console.log('WebSocket client connected');
-  ws.on('message', message => {
-    const data = JSON.parse(message);
-    if (data.type === 'rideBooked') {
-      wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(data));
-        }
-      });
-    }
-  });
-  ws.on('error', err => {
-    console.error('WebSocket server error:', err);
-  });
-});
-
 async function startServer() {
   try {
     const client = await MongoClient.connect(connectionString, { useUnifiedTopology: true });
     console.log('Connected to MongoDB');
     db = client.db(databaseName);
+
+    // Create HTTP server
+    const server = app.listen(port, () => {
+      console.log(`Server running on port ${port}`);
+    });
+
+    // WebSocket server
+    const wss = new WebSocket.Server({ server });
+
+    wss.on('connection', ws => {
+      console.log('WebSocket client connected');
+      ws.on('message', message => {
+        const data = JSON.parse(message);
+        if (data.type === 'rideBooked') {
+          wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify(data));
+            }
+          });
+        }
+      });
+      ws.on('error', err => {
+        console.error('WebSocket server error:', err);
+      });
+    });
 
     // Register endpoint
     app.post('/api/register', async (req, res) => {
@@ -257,15 +265,10 @@ async function startServer() {
       }
     });
 
-app.get('/', (req, res) => {
-  res.send('Hello! This is the carpooling backend.');
-});
-
-    app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-      console.log(`WebSocket server running on port 8080`);
-
+    app.get('/', (req, res) => {
+      res.send('Hello! This is the carpooling backend.');
     });
+
   } catch (err) {
     console.error('Failed to connect to MongoDB:', err);
     process.exit(1);

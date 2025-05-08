@@ -10,7 +10,7 @@ const RegisterForm = ({ onLogin }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post('http://localhost:3001/api/register', { name, email, password, profilePicture });
+      const response = await axios.post(import.meta.env.VITE_API_URL, { name, email, password, profilePicture });
       onLogin(response.data.token, { name, email, role: 'user' }); // Simulate token for now
     } catch (err) {
       alert('Registration failed');
