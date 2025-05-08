@@ -8,7 +8,8 @@ require('dotenv').config();
 const app = express();
 const port = 3001;
 
-app.use(cors());
+// In carpool-backend/server.js
+app.use(cors({ origin: 'https://carpool-app-2.onrender.com/' }));
 app.use(express.json());
 
 const connectionString = process.env.MONGODB_URI;
