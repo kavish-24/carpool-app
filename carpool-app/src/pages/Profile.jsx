@@ -45,7 +45,7 @@ const Profile = ({ user, sessionId }) => {
 
     const connectWebSocket = () => {
       try {
-        ws = new WebSocket('ws://localhost:8080');
+        ws = new WebSocket(import.meta.env.VITE_WS_URL || 'ws://localhost:8080');
         ws.onopen = () => {
           console.log('WebSocket connected for notifications');
           setWsError(null);
