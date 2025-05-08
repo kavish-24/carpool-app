@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 const Profile = ({ user, sessionId }) => {
@@ -9,83 +9,110 @@ const Profile = ({ user, sessionId }) => {
   const [error, setError] = useState(null);
   const [wsError, setWsError] = useState(null);
   const [editingRide, setEditingRide] = useState(null);
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
 
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8080';
 
     // Fetch booked rides
-    axios.get(`${apiUrl}/api/rides?bookedById=${user.id}`, {
-      headers: { Authorization: `Bearer ${sessionId}` }
-    })
-      .then(response => {
+    const fetchBookedRides = async () => {
+      try {
+        const response = await axios.get(`${apiUrl}/api/rides?bookedById=${user.id}`, {
+          headers: { Authorization: `Bearer ${sessionId}` }
+        });
         setBookedRides(response.data);
-      })
-      .catch(err => {
+      } catch (err) {
+        console.error('Error fetching booked rides:', err);
         setError('Failed to fetch booked rides');
-      });
+      }
+    };
 
     // Fetch created rides
-    axios.get(`${apiUrl}/api/rides?createdById=${user.id}`, {
-      headers: { Authorization: `Bearer ${sessionId}` }
-    })
-      .then(response => {
+    const fetchCreatedRides = async () => {
+      try {
+        const response = await axios.get(`${apiUrl}/api/rides?createdById=${user.id}`, {
+          headers: { Authorization: `Bearer ${sessionId}` }
+        });
         setCreatedRides(response.data);
         setLoading(false);
-      })
-      .catch(err => {
+      } catch (err) {
+        console.error('Error fetching created rides:', err);
         setError('Failed to fetch created rides');
         setLoading(false);
-      });
+      }
+    };
 
-    // Set up WebSocket with reconnection logic
-    let ws;
-    let reconnectAttempts = 0;
-    const maxReconnectAttempts = 5;
-    const reconnectInterval = 5000;
+    fetchBookedRides();
+    fetchCreatedRides();
 
+    // WebSocket connection logic
     const connectWebSocket = () => {
       try {
-        ws = new WebSocket(import.meta.env.VITE_WS_URL || 'ws://localhost:8080');
-        ws.onopen = () => {
-          console.log('WebSocket connected for notifications');
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          console.log('WebSocket already connected');
+          return;
+        }
+
+        console.log('Connecting to WebSocket at:', wsUrl);
+        wsRef.current = new WebSocket(wsUrl);
+
+        wsRef.current.onopen = () => {
+          console.log('WebSocket connected successfully');
           setWsError(null);
-          reconnectAttempts = 0;
         };
-        ws.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          if (data.type === 'rideBooked' && data.driverId === user.id) {
-            setNotification({
-              message: `Your ride has been booked by ${data.user.name}!`,
-              user: data.user
-            });
+
+        wsRef.current.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('Received WebSocket message:', data);
+            if (data.type === 'rideBooked' && data.driverId === user.id) {
+              setNotification({
+                message: `Your ride has been booked by ${data.user.name}!`,
+                user: data.user
+              });
+              // Refresh rides data
+              fetchCreatedRides();
+            }
+          } catch (err) {
+            console.error('Error processing WebSocket message:', err);
           }
         };
-        ws.onerror = (err) => {
+
+        wsRef.current.onerror = (err) => {
           console.error('WebSocket error:', err);
-          setWsError('Failed to connect to notifications server. Real-time updates may not work.');
+          setWsError('Connection error. Retrying...');
         };
-        ws.onclose = () => {
+
+        wsRef.current.onclose = () => {
           console.log('WebSocket connection closed');
-          if (reconnectAttempts < maxReconnectAttempts) {
-            setTimeout(() => {
-              console.log(`Reconnecting WebSocket (attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})...`);
-              reconnectAttempts++;
-              connectWebSocket();
-            }, reconnectInterval);
-          } else {
-            setWsError('Unable to connect to notifications server after multiple attempts. Real-time updates may not work.');
+          // Clear any existing timeout
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
           }
+          // Attempt to reconnect after 5 seconds
+          reconnectTimeoutRef.current = setTimeout(() => {
+            console.log('Attempting to reconnect WebSocket...');
+            connectWebSocket();
+          }, 5000);
         };
       } catch (err) {
-        console.error('WebSocket setup error:', err);
-        setWsError('Failed to set up notifications. Real-time updates may not work.');
+        console.error('Error setting up WebSocket:', err);
+        setWsError('Failed to connect to notifications server');
       }
     };
 
     connectWebSocket();
 
+    // Cleanup function
     return () => {
-      if (ws) ws.close();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
   }, [user.id, sessionId]);
 

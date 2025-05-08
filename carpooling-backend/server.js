@@ -11,7 +11,10 @@ const port = process.env.PORT || 3001;
 
 
 // In carpool-backend/server.js
-app.use(cors({ origin: 'https://carpool-app-2.onrender.com' }));
+app.use(cors({ 
+  origin: 'https://carpool-app-2.onrender.com',
+  credentials: true 
+}));
 
 app.use(express.json());
 
