@@ -3,10 +3,11 @@ const { MongoClient, ObjectId } = require('mongodb');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const WebSocket = require('ws');
+const http = require('http');
 require('dotenv').config();
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001; // Use Render's PORT or fallback to 3001 for local
 
 app.use(cors());
 app.use(express.json());
@@ -16,23 +17,28 @@ const databaseName = 'carpoolingDB';
 
 let db;
 
-// WebSocket server
-const wss = new WebSocket.Server({ port: 8080 });
+// Create HTTP server for Express and WebSocket
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
 wss.on('connection', ws => {
   console.log('WebSocket client connected');
   ws.on('message', message => {
-    const data = JSON.parse(message);
-    if (data.type === 'rideBooked') {
-      wss.clients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(data));
-        }
-      });
+    try {
+      const data = JSON.parse(message);
+      if (data.type === 'rideBooked') {
+        wss.clients.forEach(client => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(data));
+          }
+        });
+      }
+    } catch (err) {
+      console.error('WebSocket message error:', err);
     }
   });
   ws.on('error', err => {
-    console.error('WebSocket server error:', err);
+    console.error('WebSocket client error:', err);
   });
 });
 
@@ -72,7 +78,6 @@ async function startServer() {
             user: { id: user._id.toString(), name: user.name, email: user.email },
             createdAt: new Date()
           });
-          console.log('User logged in, sessionId:', sessionId);
           res.json({ sessionId, user: { id: user._id.toString(), name: user.name, email: user.email } });
         } else {
           res.status(401).json({ error: 'Invalid credentials' });
@@ -86,31 +91,25 @@ async function startServer() {
     // Middleware to verify session
     const verifySession = async (req, res, next) => {
       const sessionId = req.headers['authorization']?.split(' ')[1];
-      console.log('Verifying session with sessionId:', sessionId);
       if (!sessionId) {
-        console.log('No sessionId provided in Authorization header');
         return res.status(401).json({ error: 'Unauthorized' });
       }
       const session = await db.collection('sessions').findOne({ sessionId });
       if (!session) {
-        console.log('Session not found in database for sessionId:', sessionId);
         return res.status(401).json({ error: 'Unauthorized' });
       }
       const sessionAge = (new Date() - new Date(session.createdAt)) / (1000 * 60 * 60);
       if (sessionAge > 1) {
-        console.log('Session expired for sessionId:', sessionId);
         await db.collection('sessions').deleteOne({ sessionId });
         return res.status(401).json({ error: 'Session expired' });
       }
       req.user = session.user;
-      console.log('Session verified, user:', req.user);
       next();
     };
 
     // Logout endpoint
     app.post('/api/logout', async (req, res) => {
       const sessionId = req.headers['authorization']?.split(' ')[1];
-      console.log('Logging out sessionId:', sessionId);
       if (sessionId) {
         await db.collection('sessions').deleteOne({ sessionId });
         res.json({ message: 'Logged out successfully' });
@@ -151,7 +150,7 @@ async function startServer() {
           seatCapacity,
           vehicleNumber,
           fare,
-          timings, // Add timings field
+          timings,
           status: 'available',
           bookedBy: null
         };
@@ -163,7 +162,6 @@ async function startServer() {
       }
     });
 
-    // Update ride endpoint
     app.put('/api/rides/:id', verifySession, async (req, res) => {
       try {
         const { id } = req.params;
@@ -194,7 +192,6 @@ async function startServer() {
       }
     });
 
-    // Delete ride endpoint
     app.delete('/api/rides/:id', verifySession, async (req, res) => {
       try {
         const { id } = req.params;
@@ -257,9 +254,13 @@ async function startServer() {
       }
     });
 
-    app.listen(port, () => {
+    app.get('/', (req, res) => {
+      res.send('Hello! This is the carpooling backend.');
+    });
+
+    // Start the combined HTTP and WebSocket server
+    server.listen(port, () => {
       console.log(`Server running on port ${port}`);
-      console.log(`WebSocket server running on port 8080`);
     });
   } catch (err) {
     console.error('Failed to connect to MongoDB:', err);
