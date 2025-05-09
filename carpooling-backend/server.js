@@ -8,11 +8,23 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3001;
 
+// CORS configuration
+const allowedOrigins = [
+  'http://localhost:5173',  // Vite dev server
+  'https://carpool-app-2.onrender.com'  // Production
+];
 
-
-// In carpool-backend/server.js
 app.use(cors({ 
-  origin: 'https://carpool-app-2.onrender.com',
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true 
 }));
 
@@ -23,9 +35,55 @@ const databaseName = 'carpoolingDB';
 
 let db;
 
+// Root endpoint for testing
+app.get('/', (req, res) => {
+  res.json({ message: 'Carpooling API is running' });
+});
+
+// Login endpoint
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await db.collection('users').findOne({ email });
+    if (user && await bcrypt.compare(password, user.password)) {
+      const sessionId = Date.now().toString();
+      await db.collection('sessions').insertOne({
+        sessionId,
+        user: { id: user._id.toString(), name: user.name, email: user.email },
+        createdAt: new Date()
+      });
+      console.log('User logged in, sessionId:', sessionId);
+      res.json({ sessionId, user: { id: user._id.toString(), name: user.name, email: user.email } });
+    } else {
+      res.status(401).json({ error: 'Invalid credentials' });
+    }
+  } catch (err) {
+    console.error('Error logging in:', err);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Register endpoint
+app.post('/api/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    const existingUser = await db.collection('users').findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = { name, email, password: hashedPassword };
+    const result = await db.collection('users').insertOne(user);
+    res.status(201).json({ message: 'User registered', userId: result.insertedId });
+  } catch (err) {
+    console.error('Error registering user:', err);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
 async function startServer() {
   try {
-    const client = await MongoClient.connect(connectionString, { useUnifiedTopology: true });
+    const client = await MongoClient.connect(connectionString);
     console.log('Connected to MongoDB');
     db = client.db(databaseName);
 
@@ -37,63 +95,41 @@ async function startServer() {
     // WebSocket server
     const wss = new WebSocket.Server({ server });
 
-    wss.on('connection', ws => {
-      console.log('WebSocket client connected');
-      ws.on('message', message => {
-        const data = JSON.parse(message);
-        if (data.type === 'rideBooked') {
-          wss.clients.forEach(client => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify(data));
-            }
-          });
+wss.on('connection', (ws, req) => {
+  const origin = req.headers.origin;
+  if (!allowedOrigins.includes(origin)) {
+    ws.close(1008, 'Invalid origin');
+    return;
+  }
+  console.log('WebSocket client connected');
+
+  // Keep-alive ping
+  ws.isAlive = true;
+  ws.on('pong', () => ws.isAlive = true);
+
+  ws.on('message', message => {
+    const data = JSON.parse(message);
+    if (data.type === 'rideBooked') {
+      wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify(data));
         }
       });
-      ws.on('error', err => {
-        console.error('WebSocket server error:', err);
-      });
-    });
+    }
+  });
 
-    // Register endpoint
-    app.post('/api/register', async (req, res) => {
-      try {
-        const { name, email, password } = req.body;
-        const existingUser = await db.collection('users').findOne({ email });
-        if (existingUser) {
-          return res.status(400).json({ error: 'Email already exists' });
-        }
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const user = { name, email, password: hashedPassword };
-        const result = await db.collection('users').insertOne(user);
-        res.status(201).json({ message: 'User registered', userId: result.insertedId });
-      } catch (err) {
-        console.error('Error registering user:', err);
-        res.status(500).json({ error: 'Registration failed' });
-      }
-    });
+  ws.on('error', err => console.error('WebSocket client error:', err));
+  ws.on('close', () => console.log('WebSocket client disconnected'));
+});
 
-    // Login endpoint
-    app.post('/api/login', async (req, res) => {
-      try {
-        const { email, password } = req.body;
-        const user = await db.collection('users').findOne({ email });
-        if (user && await bcrypt.compare(password, user.password)) {
-          const sessionId = Date.now().toString();
-          await db.collection('sessions').insertOne({
-            sessionId,
-            user: { id: user._id.toString(), name: user.name, email: user.email },
-            createdAt: new Date()
-          });
-          console.log('User logged in, sessionId:', sessionId);
-          res.json({ sessionId, user: { id: user._id.toString(), name: user.name, email: user.email } });
-        } else {
-          res.status(401).json({ error: 'Invalid credentials' });
-        }
-      } catch (err) {
-        console.error('Error logging in:', err);
-        res.status(500).json({ error: 'Login failed' });
-      }
-    });
+// Ping clients every 30 seconds
+setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (!ws.isAlive) return ws.terminate();
+    ws.isAlive = false;
+    ws.ping();
+  });
+}, 30000);
 
     // Middleware to verify session
     const verifySession = async (req, res, next) => {
@@ -268,10 +304,6 @@ async function startServer() {
         res.status(500).json({ error: 'Failed to fetch ride' });
       }
     });
-
-app.get('/', (req, res) => {
-  res.send('Hello! This is the carpooling backend.');
-});
 
   } catch (err) {
     console.error('Failed to connect to MongoDB:', err);

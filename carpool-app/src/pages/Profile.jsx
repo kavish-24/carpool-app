@@ -14,7 +14,7 @@ const Profile = ({ user, sessionId }) => {
 
   useEffect(() => {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8080';
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
     // Fetch booked rides
     const fetchBookedRides = async () => {

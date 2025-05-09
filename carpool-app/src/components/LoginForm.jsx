@@ -9,10 +9,12 @@ const LoginForm = ({ onLogin }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post(import.meta.env.VITE_API_URL, { email, password });
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const response = await axios.post(`${apiUrl}/api/login`, { email, password });
       onLogin(response.data.sessionId, response.data.user);
     } catch (err) {
-      alert('Login failed');
+      console.error('Login error:', err);
+      alert('Login failed. Please check your credentials.');
     }
   };
 
